@@ -11,26 +11,53 @@ h1{color:#FF6B81;font-size:20px;margin:0 0 8px}
 p{color:#999;font-size:14px}
 .spinner{width:32px;height:32px;border:3px solid #FFE0E6;border-top-color:#FF6B81;border-radius:50%;animation:spin .8s linear infinite;margin:16px auto}
 @keyframes spin{to{transform:rotate(360deg)}}
-.error{color:#E8456A;font-size:13px;display:none}
+.retry-info{color:#E8456A;font-size:13px;display:none;margin-top:8px}
 </style>
 </head>
 <body>
 <div class="card">
   <h1>萌乐多儿童乐园</h1>
-  <p>正在跳转到管理端...</p>
-  <div class="spinner"></div>
-  <div class="error" id="err"></div>
+  <p id="status">正在跳转到管理端...</p>
+  <div class="spinner" id="spin"></div>
+  <div class="retry-info" id="retry"></div>
 </div>
 <script>
-fetch("config.json").then(r=>r.json()).then(c=>{
-  var url=c.admin||c.baseUrl;
-  if(url)window.location.replace(url);
-  else throw new Error("配置中没有管理端地址");
-}).catch(e=>{
-  document.getElementById("err").style.display="block";
-  document.getElementById("err").textContent="跳转失败: "+e.message;
-  document.querySelector(".spinner").style.display="none";
-});
+var maxRetry=6,retryDelay=3000,attempts=0;
+function tryRedirect(){
+  attempts++;
+  fetch("config.json?_="+Date.now()).then(function(r){return r.json();}).then(function(c){
+    var url=c.admin||c.baseUrl;
+    if(!url) throw new Error("配置中无地址");
+    // 验证地址可访问（用fetch探测，避免跳转到死链）
+    fetch(url+"/api/health",{mode:"cors",signal:AbortSignal.timeout(5000)}).then(function(){
+      window.location.replace(url);
+    }).catch(function(){
+      // 地址暂时不可达，重试
+      if(attempts<maxRetry){
+        document.getElementById("retry").style.display="block";
+        document.getElementById("retry").textContent="服务正在启动，第"+(attempts+1)+"次重试...";
+        setTimeout(tryRedirect,retryDelay);
+      } else {
+        document.getElementById("status").textContent="暂时无法连接";
+        document.getElementById("retry").style.display="block";
+        document.getElementById("retry").textContent="服务器可能正在重启，请稍后刷新页面重试";
+        document.getElementById("spin").style.display="none";
+      }
+    });
+  }).catch(function(e){
+    if(attempts<maxRetry){
+      document.getElementById("retry").style.display="block";
+      document.getElementById("retry").textContent="正在获取服务地址，第"+(attempts+1)+"次重试...";
+      setTimeout(tryRedirect,retryDelay);
+    } else {
+      document.getElementById("status").textContent="跳转失败";
+      document.getElementById("retry").style.display="block";
+      document.getElementById("retry").textContent="服务暂时不可用，请稍后刷新重试";
+      document.getElementById("spin").style.display="none";
+    }
+  });
+}
+tryRedirect();
 </script>
 </body>
 </html>
